@@ -3,6 +3,61 @@ let upstream =
 
 let overrides = {=}
 
-let additions = {=}
+let additions =
+      { dodo-printer =
+        { dependencies =
+          [ "aff"
+          , "ansi"
+          , "avar"
+          , "console"
+          , "effect"
+          , "foldable-traversable"
+          , "lists"
+          , "maybe"
+          , "minibench"
+          , "node-child-process"
+          , "node-fs-aff"
+          , "node-process"
+          , "psci-support"
+          , "strings"
+          ]
+        , repo = "https://github.com/natefaubion/purescript-dodo-printer.git"
+        , version = "v1.0.8"
+        }
+      , ps-cst =
+        { dependencies =
+          [ "ansi"
+          , "console"
+          , "dodo-printer"
+          , "effect"
+          , "generics-rep"
+          , "node-fs-aff"
+          , "node-path"
+          , "psci-support"
+          , "record"
+          , "spec"
+          , "strings"
+          ]
+        , repo = "https://github.com/purescript-codegen/purescript-ps-cst.git"
+        , version = "5b0a078"
+        }
+      , cst-simple =
+        { dependencies =
+          [ "arrays"
+          , "console"
+          , "debug"
+          , "effect"
+          , "node-fs-aff"
+          , "parsing"
+          , "ps-cst"
+          , "psci-support"
+          , "spec"
+          , "typelevel-prelude"
+          ]
+        , repo =
+            "https://github.com/purescript-codegen/purescript-cst-simple.git"
+        , version = "1dcd0fd"
+        }
+      }
 
 in  upstream ⫽ overrides ⫽ additions

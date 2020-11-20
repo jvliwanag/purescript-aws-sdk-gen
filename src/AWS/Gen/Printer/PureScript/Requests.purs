@@ -1,50 +1,59 @@
-module AWS.Gen.Printer.PureScript.Requests where
+module AWS.Gen.Printer.PureScript.Requests
+       ( addRequestsModule
+       ) where
 
 import Prelude
 
-import AWS.Gen.Printer.PureScript.Comment (comment)
 import AWS.Gen.Model (ServiceDef, OperationDef)
-import Data.Maybe (maybe)
-import Data.String (Pattern(Pattern), Replacement(Replacement), drop, joinWith, replace, replaceAll, take, toLower)
+import AWS.Gen.Printer.PureScript.Defs (cnst_Coercible, expr_svc_unsafeRequest, requestsModuleName, typ_Aff, typ_Unit, typ_svc_Service, typ_svc_shape)
+import CST.Simple (ModuleBuilder, bndrVar, exprIdent, exprRecord, exprString, tvb, typForall, typVar, (*->), (*=>))
+import CST.Simple.ModuleBuilder (addValue)
+import CST.Simple.ProjectBuilder (ProjectBuilder, addModule)
+import Data.Maybe (Maybe(..), fromMaybe)
+import Data.String.Extra (camelCase)
+import Data.Traversable (traverse_)
 
-fileName :: ServiceDef -> String
-fileName { name } = name <> "Requests"
+addRequestsModule :: ServiceDef -> ProjectBuilder Unit
+addRequestsModule svcDef = addModule (requestsModuleName svcDef) do
+  traverse_ (addOperation svcDef) svcDef.operations
 
-output :: ServiceDef -> String
-output svc@{ operations } =
-    (header svc) <>
-    (operations <#> (function svc) # joinWith "")
+addOperation :: ServiceDef -> OperationDef -> ModuleBuilder Unit
+addOperation svc op@{ input: Just input } =
+  addOperationWithInput svc op input
+addOperation svc op =
+  addOperationWithoutInput svc op
 
-header :: ServiceDef -> String
-header { name } = """
-module AWS.{{name}}.Requests where
+addOperationWithInput :: ServiceDef -> OperationDef -> String -> ModuleBuilder Unit
+addOperationWithInput svcDef { methodName, output: output' } input = do
+  addValue
+    { export: true
+    , name: camelCase methodName
+    , binders: [ bndrVar "svc", bndrVar "r" ]
+    , type_:
+      typForall [ tvb "r" ] $
+      cnst_Coercible (typVar "r") (typ_svc_shape svcDef input) *=>
+      typ_svc_Service svcDef *->
+      typVar "r" *->
+      typ_Aff outputType
+    , expr:
+      expr_svc_unsafeRequest svcDef (exprIdent "svc") (exprString methodName) (exprIdent "r")
+    }
 
-import Prelude
-import Control.Monad.Aff (Aff)
-import Control.Monad.Eff.Exception (EXCEPTION)
+    where
+      outputType = fromMaybe typ_Unit (typ_svc_shape svcDef <$> output')
 
-import AWS.Request (MethodName(..), request) as AWS
-import AWS.Request.Types as Types
+addOperationWithoutInput :: ServiceDef -> OperationDef -> ModuleBuilder Unit
+addOperationWithoutInput svcDef { methodName, output: output' } = do
+  addValue
+    { export: true
+    , name: camelCase methodName
+    , binders: [ bndrVar "svc" ]
+    , type_:
+      typ_svc_Service svcDef *->
+      typ_Aff outputType
+    , expr:
+      expr_svc_unsafeRequest svcDef (exprIdent "svc") (exprString methodName) (exprRecord [])
+    }
 
-import AWS.{{name}} as {{name}}
-import AWS.{{name}}.Types as {{name}}Types
-""" # replaceAll (Pattern "{{name}}") (Replacement name)
-
-function :: ServiceDef -> OperationDef -> String
-function svc { methodName, input, output: output', documentation } = """
-{{documentation}}
-{{camelCaseMethodName}} :: forall eff. {{serviceName}}.Service -> {{inputType}} Aff (exception :: EXCEPTION | eff) {{outputType}}
-{{camelCaseMethodName}} ({{serviceName}}.Service serviceImpl) = AWS.request serviceImpl method {{inputFallback}} where
-    method = AWS.MethodName "{{camelCaseMethodName}}"
-""" # replaceAll (Pattern "{{serviceName}}") (Replacement svc.name )
-    # replaceAll (Pattern "{{camelCaseMethodName}}") (Replacement camelCaseMethodName)
-    # replace (Pattern "{{inputType}}") (Replacement inputType)
-    # replace (Pattern "{{inputFallback}}") (Replacement inputFallback)
-    # replace (Pattern "{{outputType}}") (Replacement outputType)
-    # replace (Pattern "{{documentation}}") (Replacement documentation')
-        where
-            camelCaseMethodName = (take 1 methodName # toLower) <> (drop 1 methodName)
-            inputType = input # maybe "" (\shape -> svc.name <> "Types." <> shape <> " ->")
-            inputFallback = input # maybe "unit" (\_ -> "")
-            outputType =  output' # maybe "Unit" (\shape -> svc.name <> "Types." <> shape)
-            documentation' = documentation # maybe "" comment
+  where
+    outputType = fromMaybe typ_Unit (typ_svc_shape svcDef <$> output')

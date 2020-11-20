@@ -1,15 +1,64 @@
 module AWS.Gen.Printer.PureScript.Types
-       ( fileName
-       , output
+       ( addTypesModule
        ) where
 
 import Prelude
 
-import AWS.Gen.Model (MemberType(..), ServiceDef, ShapeDef, ShapeType(..), StructureMember, scalarTypeToPSType)
+import AWS.Gen.Model (MemberType(..), ScalarType(..), ServiceDef, ShapeDef, ShapeType(..), StructureMember, scalarTypeToPSType)
 import AWS.Gen.Printer.PureScript.Comment (comment)
+import AWS.Gen.Printer.PureScript.Defs (typ_Array, typ_Boolean, typ_Int, typ_Number, typ_Object, typ_String, typ_Timestamp, typ_UndefinedOr, typesModuleName)
+import CST.Simple (ModuleBuilder, Type, typCons, typRecord_)
+import CST.Simple.ModuleBuilder (addType)
+import CST.Simple.ProjectBuilder (ProjectBuilder, addModule)
 import Data.Array (null, partition)
+import Data.Foldable (traverse_)
 import Data.Maybe (maybe)
 import Data.String (Pattern(Pattern), Replacement(..), joinWith, replace, replaceAll)
+import Data.Tuple.Nested ((/\))
+
+addTypesModule :: ServiceDef -> ProjectBuilder Unit
+addTypesModule svcDef = addModule (typesModuleName svcDef) do
+  traverse_ addShape svcDef.shapes
+
+addShape :: ShapeDef -> ModuleBuilder Unit
+addShape shape = do
+  addType
+    { export: true
+    , name: shape.name
+    , typeVarBindings: []
+    , type_: shapeToType shape
+    }
+
+shapeToType :: ShapeDef -> Type
+shapeToType shape = case shape.shapeType of
+  STStructure { members } ->
+    typRecord_ (toEntry <$> members)
+    where
+      toEntry m = m.name /\ structurMemberToType m
+
+structurMemberToType :: StructureMember -> Type
+structurMemberToType { isRequired, memberType } =
+  if isRequired
+  then memberTypeToType memberType
+  else typ_UndefinedOr $ memberTypeToType memberType
+
+memberTypeToType :: MemberType -> Type
+memberTypeToType (MTScalar sc) = scalarTypeToType (sc)
+memberTypeToType (MTRef name) = typCons name
+memberTypeToType (MTList mt) = typ_Array (memberTypeToType mt)
+memberTypeToType (MTMap mt) = typ_Object (memberTypeToType mt)
+
+scalarTypeToType :: ScalarType -> Type
+scalarTypeToType SCString = typ_String
+scalarTypeToType SCInt = typ_Int
+scalarTypeToType SCNumber = typ_Number
+scalarTypeToType SCBoolean = typ_Boolean
+scalarTypeToType SCTimestamp = typ_Timestamp
+
+{-
+structureMemberToRecordTypeEntry :: StructureMember -> String /\ Type
+structureMemberToRecordTypeEntry
+-}
 
 fileName :: ServiceDef -> String
 fileName { name } = name <> "Types"
@@ -50,13 +99,13 @@ instance decode{{name}} :: Decode {{name}} where decode = genericDecode options
 instance encode{{name}} :: Encode {{name}} where encode = genericEncode options
 {{defaultConstructor}}
 """ # replaceAll (Pattern "{{name}}") (Replacement $ shape.name)
-    # replace (Pattern "{{type}}") (Replacement $ recordType svc shape)
+    # replace (Pattern "{{type}}") (Replacement $ recordType shape)
     # replace (Pattern "{{documentation}}") (Replacement $ maybe "" comment shape.documentation)
-    # replace (Pattern "{{defaultConstructor}}") (Replacement $ defaultConstructor svc shape)
+    # replace (Pattern "{{defaultConstructor}}") (Replacement $ defaultConstructor shape)
 
-recordType :: ServiceDef -> ShapeDef -> String
-recordType svc shape = case shape.shapeType of
-    STStructure { members } -> recordRecord svc shape members
+recordType :: ShapeDef -> String
+recordType shape = case shape.shapeType of
+    STStructure { members } -> recordRecord members
 
 recordArray :: String -> String
 recordArray shape = "(Array {{type}})"
@@ -66,15 +115,15 @@ recordMap :: String -> String
 recordMap shape = "(StrMap.StrMap {{value}})"
     # replace (Pattern "{{value}}") (Replacement shape)
 
-recordRecord :: ServiceDef -> ShapeDef -> Array StructureMember -> String
-recordRecord svc shape members = if null members
+recordRecord :: Array StructureMember -> String
+recordRecord members = if null members
     then "Types.NoArguments"
     else "\n  { {{fields}}\n  }"
         # replace (Pattern "{{fields}}") (Replacement fields)
-            where fields = recordFields svc shape members # joinWith "\n  , "
+            where fields = recordFields members # joinWith "\n  , "
 
-recordFields :: ServiceDef -> ShapeDef -> Array StructureMember -> Array String
-recordFields svc shape members = fields
+recordFields :: Array StructureMember -> Array String
+recordFields members = fields
     where field :: StructureMember -> String
           field sm = "\"{{name}}\" :: {{type}}"
               # replace (Pattern "{{name}}") (Replacement sm.name)
@@ -97,12 +146,12 @@ structureMemberToPSType { memberType, isRequired } =
       MTList m' -> "Array (" <> memberF m' <> ")"
       MTMap m' -> "StrMap.StrMap (" <> memberF m' <> ")"
 
-defaultConstructor :: ServiceDef -> ShapeDef -> String
-defaultConstructor svc shape = case shape.shapeType of
-    STStructure { members } -> defaultRecordConstructor svc shape members
+defaultConstructor :: ShapeDef -> String
+defaultConstructor shape = case shape.shapeType of
+    STStructure { members } -> defaultRecordConstructor shape members
 
-defaultRecordConstructor :: ServiceDef -> ShapeDef -> Array StructureMember -> String
-defaultRecordConstructor svc shape members = if null members
+defaultRecordConstructor :: ShapeDef -> Array StructureMember -> String
+defaultRecordConstructor shape members = if null members
     then "" -- there's already a singleton constructor
     else """
 -- | Constructs {{name}} from required parameters
@@ -120,7 +169,7 @@ new{{name}}' {{arguments}} customize = ({{name}} <<< customize) { {{fieldAssignm
     # replaceAll (Pattern "{{fieldAssignments}}") (Replacement fieldAssignments)
         where newTypeSignature = (signatureTypes <> [shape.name]) # joinWith " -> "
               fieldsSignature = (signatureTypes <> [ "( { " <> fields <> " } -> {" <> fields <> " } )", shape.name]) # joinWith " -> "
-              fields = recordFields svc shape members # joinWith " , "
+              fields = recordFields members # joinWith " , "
               arguments = (escapeArgument <<< _.name) <$> requiredFields # joinWith " "
               fieldAssignments = (requiredFieldAssignments <> optionalFieldAssignments) # joinWith ", "
               requiredFieldAssignments = (\f -> escapeFieldName f.name <> ": " <> escapeArgument f.name) <$> requiredFields

@@ -5,10 +5,7 @@ import Prelude
 import AWS.Gen.Metadata (MetadataElement, metadataFileRegex)
 import AWS.Gen.MetadataReader (readService)
 import AWS.Gen.Model (ServiceDef)
-import AWS.Gen.Printer.PureScript (filePath, project)
-import AWS.Gen.Printer.PureScript.Module as ModulePrinter
-import AWS.Gen.Printer.PureScript.Requests as RequestsPrinter
-import AWS.Gen.Printer.PureScript.Types as TypesPrinter
+import AWS.Gen.Printer.PureScript (project)
 import Control.Monad.Error.Class (throwError)
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
@@ -16,15 +13,14 @@ import Data.String.Regex (test)
 import Data.Traversable (find, traverse_)
 import Eff (liftExcept)
 import Effect (Effect)
-import Effect.Aff (Aff, apathize, error, launchAff_)
+import Effect.Aff (Aff, error, launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Class.Console (log)
-import FS (mkdirRecursive)
 import Foreign.Generic (decodeJSON)
 import Foreign.Object (values)
 import Node.Encoding (Encoding(..))
-import Node.FS.Aff (readTextFile, readdir, writeTextFile)
-import Node.Path (FilePath, dirname)
+import Node.FS.Aff (readTextFile, readdir)
+import Node.Path (FilePath)
 import Node.Path as Path
 
 apisMetadataFilePath = "./aws-sdk-js/apis/metadata.json" :: FilePath
@@ -35,23 +31,6 @@ clientsPath = "aws-sdk-purs" :: FilePath
 createClientProject :: FilePath -> ServiceDef -> Aff Unit
 createClientProject path svc = project path svc
 
-createClientFiles :: FilePath -> ServiceDef -> Aff Unit
-createClientFiles path svc = do
-  let filePath' = filePath path svc
-  _ <- apathize $ mkdirRecursive $ dirname $ filePath' ""
-
-  let moduleFilePath = filePath' $ ModulePrinter.fileName svc
-  let moduleContent = ModulePrinter.output svc
-  _ <- writeTextFile UTF8 moduleFilePath moduleContent
-
-  let requestsFilePath = filePath' $ RequestsPrinter.fileName svc
-  let requestsContent = RequestsPrinter.output svc
-  _ <- writeTextFile UTF8 requestsFilePath requestsContent
-
-  let typesFilePath = filePath' $ TypesPrinter.fileName svc
-  let typesContent = TypesPrinter.output svc
-  writeTextFile UTF8 typesFilePath typesContent
-
 runProject :: Array FilePath -> FilePath -> MetadataElement -> Aff Unit
 runProject apiFileNames clientsProject metadataElement = do
   log $ "Creating project - " <> name
@@ -60,7 +39,7 @@ runProject apiFileNames clientsProject metadataElement = do
   awsService <- readAwsService $ Path.concat [ apisPath, fileName ]
   serviceDef <- readServiceDef awsService
   createClientProject clientsPath serviceDef
-  createClientFiles clientsPath serviceDef
+--  createClientFiles clientsPath serviceDef
   where
     name = metadataElement.name
 

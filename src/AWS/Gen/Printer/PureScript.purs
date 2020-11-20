@@ -3,6 +3,10 @@ module AWS.Gen.Printer.PureScript where
 import Prelude
 
 import AWS.Gen.Model (ServiceDef)
+import AWS.Gen.Printer.PureScript.Requests (addRequestsModule)
+import AWS.Gen.Printer.PureScript.Service (addServiceModule)
+import AWS.Gen.Printer.PureScript.Types (addTypesModule)
+import CST.Simple.Project (defaultProjectSettings, runProject)
 import Data.String (Pattern(Pattern), Replacement(Replacement), replace, replaceAll, toLower)
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..))
@@ -22,8 +26,6 @@ filePath path svc@({ name }) fileName = concat [projectPath path svc, "src", fil
 
 project :: FilePath -> ServiceDef -> Aff Unit
 project path svc  = do
-    let projectPath' = projectPath path svc
-
     paths <- readdirRecursive projectTemplatePath
     PartitionPaths { directoryPaths, filePaths } <- partitionPaths paths
     filePathsAndContent <- traverse (\f -> readTextFile UTF8 f # map (\c -> Tuple f c)) filePaths
@@ -33,7 +35,22 @@ project path svc  = do
 
     _ <- apathize $ traverse (mkdirRecursive) newDirectoryPaths
     _ <- traverse (\(Tuple f c) -> writeTextFile UTF8 f c) newFilePathsAndNewContent
-    pure unit
+
+    runProject projectSettings do
+      addServiceModule svc
+      addTypesModule svc
+      addRequestsModule svc
+
+  where
+    projectPath' = projectPath path svc
+    srcPath = concat [ projectPath', "src" ]
+
+    projectSettings =
+      defaultProjectSettings
+      { outputDirectory =
+        concat [ projectPath', "src" ]
+      , rmDirectoryFilesPreRun = true
+      }
 
 updateFileContent :: ServiceDef -> String -> String
 updateFileContent { name } str = str

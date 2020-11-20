@@ -7,9 +7,11 @@
   , "foreign-generic"
   , "node-fs-aff"
   , "prelude"
-  , "psci-support"
   , "ps-cst"
+  , "psci-support"
   , "spec"
+  , "strings-extra"
+  , "string-parsers"
   ]
 , packages = ./packages.dhall
 , sources = [ "src/**/*.purs", "test/**/*.purs" ]
